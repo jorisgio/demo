@@ -2,3 +2,6 @@
 name = "demo"
 version = "0.1.0"
 authors = ["Joris Giovannangeli <joris@giovannangeli.fr>"]
+
+[dependencies]
+num = "0.1.25"
