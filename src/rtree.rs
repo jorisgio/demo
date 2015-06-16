@@ -1,7 +1,5 @@
 use std::mem;
 use std::cmp::{
-    Ord,
-    Eq,
     PartialEq,
     PartialOrd,
     Ordering,
@@ -34,27 +32,28 @@ enum Node<Coord : Coordinate, Value> {
 }
 
 impl<Coord : Coordinate, Value, Obj : ?Sized> PartialOrd<Obj> for Node<Coord, Value>
-where Point<Coord> : PartialOrd<Obj>, Tile<Coord> : PartialOrd<Obj>, Node<Coord, Value> : PartialEq<Obj> {
+where Obj : PartialOrd<Point<Coord>>, Obj : PartialOrd<Tile<Coord>>, Node<Coord, Value> : PartialEq<Obj> {
 
     #[inline]
     fn partial_cmp(&self, rhs : &Obj) -> Option<Ordering> {
         match *self {
-            Node::Leaf { point : ref p, .. } => Tile::from_point(*p).partial_cmp(rhs),
-            Node::Node { coverage : ref tile, .. } => tile.partial_cmp(rhs),
+            Node::Leaf { point : ref p, .. } => rhs.partial_cmp(&Tile::from_point(*p)),
+            Node::Node { coverage : ref tile, .. } => rhs.partial_cmp(tile),
         }
+        .map(|o| match o { Ordering::Less => Ordering::Greater, Ordering::Greater => Ordering::Less, o => o, })
     }
 }
 
 impl<Coord : Coordinate, Value, Obj : ?Sized> PartialEq<Obj> for Node<Coord, Value>
 where
-Point<Coord> : PartialEq<Obj>,
-Tile<Coord> : PartialEq<Obj>,
+Obj : PartialEq<Point<Coord>>, 
+Obj : PartialEq<Tile<Coord>>,
 {
 
     fn eq(&self, rhs : &Obj) -> bool {
         match *self {
-            Node::Leaf { point : ref p, .. } => p.eq(rhs),
-            Node::Node { coverage : ref tile, .. } => tile.eq(rhs),
+            Node::Leaf { point : ref p, .. } => rhs.eq(p),
+            Node::Node { coverage : ref tile, .. } => rhs.eq(tile),
         }
     }
 }
@@ -74,7 +73,7 @@ impl<Coord : Coordinate, Value> Node<Coord, Value> {
     ///
     /// # Panics 
     ///
-    /// Panics when the node has less than `fill_factor` elements
+    /// Panics when the node has less than `fill_factor` elements or if fill_factor is less than 2
     fn sweep(tile_set : Vec<Tile<Coord>>, fill_factor : usize) -> Box<Line<Coord>> {
 
         // Use a greedy algorithm. Completly fill the first node and put the remaining elements in
@@ -90,13 +89,12 @@ impl<Coord : Coordinate, Value> Node<Coord, Value> {
 
 
         // Sort by x axis starting points
-        tile_set_vertical.sort_by(|n1, n2| n1.vertical_cmp(*n2));
+        tile_set_vertical.sort_by(|n1, n2| n1.bottom_left_corner().vertical_cmp(n2.bottom_left_corner()));
         let iter = tile_set_vertical.iter();
 
         // Compute the vertical splitting line
-        let mut vline =
-            VerticalLine::at_point(tile_set_vertical[fill_factor - 1].top_right_corner());
-        vline = vline + Coord::one();
+        let vline =
+            VerticalLine::at_point(tile_set_vertical[fill_factor].bottom_left_corner());
 
         // Compute the number of tiles which have to be splited (overlapping the first box)
         let vertical_cost = iter.filter(|&tile| &vline == tile).count();
@@ -104,13 +102,12 @@ impl<Coord : Coordinate, Value> Node<Coord, Value> {
 
 
         // Sort by y axis starting points
-        tile_set_horizontal.sort_by(|n1, n2| n1.horizontal_cmp(*n2));
+        tile_set_horizontal.sort_by(|n1, n2| n1.bottom_left_corner().horizontal_cmp(n2.bottom_left_corner()));
         let iter = tile_set_horizontal.iter();
 
         // Compute the spliting line
-        let mut hline = 
-            HorizontalLine::at_point(tile_set_horizontal[fill_factor - 1].top_right_corner());
-        hline = hline + Coord::one();
+        let hline = 
+            HorizontalLine::at_point(tile_set_horizontal[fill_factor].bottom_left_corner());
 
         // Compute the number of tiles which have to be splited (overlapping the first box)
         let horizontal_cost = iter.filter(|&tile| &hline == tile).count();
@@ -130,7 +127,7 @@ impl<Coord : Coordinate, Value> Node<Coord, Value> {
     ///
     /// Returns the right subtree.
     ///
-    fn partition(&mut self, line : &Line<Coord>, fill_factor : usize) -> Option<Node<Coord, Value>> {
+    fn partition<'a>(&mut self, line : &'a (Line<Coord> + 'a), fill_factor : usize) -> Option<Node<Coord, Value>> {
         let (left, right) =
             match *self {
                 Node::Leaf { .. } => return None,
@@ -140,10 +137,10 @@ impl<Coord : Coordinate, Value> Node<Coord, Value> {
                     let mut right_vec = Vec::with_capacity(fill_factor);
 
                     for mut node in (vector.drain(..)) {
-                        match node.partial_cmp(&line) {
-                            Some(Ordering::Greater) | Some(Ordering::Equal) => left_vec.push(node),
+                        match node.partial_cmp(line) {
+                            Some(Ordering::Less) => left_vec.push(node),
                             // The current node overlaps the split tile. Recursivly split the subtree
-                            None => 
+                            Some(Ordering::Equal) => 
                             {
                                 let right_subnode = node.partition(line, fill_factor);
                                 left_vec.push(node);
@@ -262,86 +259,209 @@ impl<Coord : Coordinate, Value> Node<Coord, Value> {
 #[derive(Debug)]
 pub struct RTree<Coord : Coordinate, Data> {
     fill_factor : usize,
-    tile : Tile<Coord>,
-    root : Node<Coord, Data>,
+    root : Option<Node<Coord, Data>>,
 }
 
 impl<Coord : Coordinate, Data> RTree<Coord, Data> {
 
-    /// Creates a new empty `RTree` covering the given tile
-    pub fn new(tile : Tile<Coord>) -> RTree<Coord, Data> {
+    /// Creates a new empty `RTree`
+    pub fn new() -> RTree<Coord, Data> {
         RTree {
             fill_factor : 4,
-            tile : tile,
-            root : Node::Node {
-                coverage : tile,
-                vector : Vec::with_capacity(4),
-            },
+            root : None,
         }
     }
-            
+
     /// Creates a new empty `RTree` covering the given tile with an user defined radix
-    pub fn with_radix(tile : Tile<Coord>, radix : usize) -> RTree<Coord, Data> {
+    pub fn with_radix(radix : usize) -> RTree<Coord, Data> {
         RTree {
             fill_factor : radix,
-            tile : tile,
-            root : Node::Node {
-                coverage : tile,
-                vector : Vec::with_capacity(radix),
-            },
+            root : None,
         }
     }
 
     /// Inserts a point into the RTree, and returns the old value associated to this point.
     ///
-    /// # Panic
-    ///
-    /// panics if the point is not inside the covered area
     pub fn insert(&mut self, point : Point<Coord>, data : Data) -> Option<Data> {
-        if ! (self.tile >= point ) {
-            panic!("rtree : point out of range");
-        } else {
-            let (ret_val, overflow) = self.root.insert(point, data, self.fill_factor);
+        if let Some(mut root) = self.root.take() {
+            let (ret_val, overflow) = root.insert(point, data, self.fill_factor);
             if let Some(n) = overflow {
                 // Replace the root
-                let mut new_node =
-                    Node::Node {
-                        coverage : self.tile,
-                        vector : Vec::with_capacity(self.fill_factor),
-                    };
-
-                mem::swap(&mut new_node, &mut self.root);
-                match self.root {
-                    Node::Node { ref mut vector, .. } => 
-                    {
-
+                let mut vector = Vec::with_capacity(self.fill_factor);
+                let tile = n.coverage().union(root.coverage()); 
                 vector.push(n);
-                vector.push(new_node);
-                    },
-                    _ => unreachable!(),
-                }
+                vector.push(root);
+
+                self.root = Some(Node::Node { coverage : tile, vector : vector });
             }
             ret_val
+        } else {
+            self.root = Some(Node::Leaf { point : point, data : data }); None
         }
     }
     /// Recursivly search for a matching point, returns `None` if no point is found or a mutable
     /// reference to the value associated with the point
     #[inline]
     pub fn find_mut(&mut self, point : Point<Coord>) -> Option<&mut Data> {
-        self.root.find_mut(point)
+        self.root.as_mut().and_then(|r| r.find_mut(point))
     }
 
     /// Recursivly search for a matching point, returns `None` if no point is found or a
     /// reference to the value associated with the point
     #[inline]
     pub fn find(&self, point : Point<Coord>) -> Option<&Data> {
-        self.root.find(point)
+        self.root.as_ref().and_then(|r| r.find(point))
     }
 
 }
 
-#[cfg(test)]
-mod test {
-    use super::*;
+// Tests
+#[test]
+#[should_panic="index out of bounds"]
+fn test_sweep_empty() {
+    let vec = Vec::new();
+    Node::<u16, u16>::sweep(vec, 0);
+}
+
+#[test]
+#[should_panic="index out of bounds"]
+fn test_sweep_fill_factor_empty() {
+    let vec = vec![Tile::new(Point::new(0u16, 0), Point::new(4, 3))];
+    Node::<u16, u16>::sweep(vec, 4);
+}
+
+#[test]
+fn test_sweep_horizontal() {
+    let vec =
+        vec![Tile::new(Point::new(0, 0), Point::new(2, 2)),
+        Tile::new(Point::new(1, 5), Point::new(8, 6)),
+        Tile::new(Point::new(4, 10), Point::new(7, 11)),
+        ];
+
+    let line = Node::<u16, u16>::sweep(vec.clone(), 2);
+    assert!(line.is_horizontal());
+    assert!(*line > vec[0].bottom_left_corner());
+    assert!(*line > vec[1].bottom_left_corner());
+    assert!(*line <= vec[2].bottom_left_corner());
+}
+
+#[test]
+fn test_sweep_vertical() {
+    let vec =
+        vec![Tile::new(Point::new(0, 0), Point::new(2, 2)),
+        Tile::new(Point::new(1, 5), Point::new(3, 6)),
+        Tile::new(Point::new(4, 4), Point::new(7, 11)),
+        ];
+
+    let line = Node::<u16, u16>::sweep(vec.clone(), 2);
+    assert!(line.is_vertical());
+    println!("{:?}, {:?}", line, vec[0].bottom_left_corner());
+    assert!(*line > vec[0].bottom_left_corner());
+    assert!(*line > vec[1].bottom_left_corner());
+    assert!(*line <= vec[2].bottom_left_corner());
+}
+
+#[test]
+fn test_partition_depth1_vertical() {
+
+    let mut vector = Vec::with_capacity(5);
+
+    vector.push(Node::Leaf{ point : Point::new(0, 0),data : ()});
+    vector.push(Node::Leaf{ point : Point::new(5, 9),data : ()});
+    vector.push(Node::Leaf{ point : Point::new(6, 0),data : ()});
+    vector.push(Node::Leaf{ point : Point::new(3, 10), data : ()});
+    vector.push(Node::Leaf{ point : Point::new(5, 5), data : ()});
+
+    let mut node = Node::Node {
+        coverage : Tile::new(Point::new(0, 0), Point::new(10, 10)),
+        vector : vector,
+    };
+
+    let line = Box::new(VerticalLine::new(6u16));
+
+    let ret = node.partition(&*line as &Line<u16>, 4);
+
+    assert_eq!(ret, Some(Node::Leaf{ point : Point::new(6, 0), data : () }));
+
+    match node { 
+        Node::Node { 
+            ref coverage,
+            ref vector,
+        } =>
+        {
+            assert!(vector.len() == 4);
+            assert!(vector.iter().all(|n| n < &*line))
+        }
+
+        _ => panic!("Node became a leaf"),
+    }
+
+}
+
+#[test]
+fn test_partition_depth1_horizontal() {
+
+    let mut vector = Vec::with_capacity(5);
+
+    vector.push(Node::Leaf{ point : Point::new(0, 0),data : ()});
+    vector.push(Node::Leaf{ point : Point::new(5, 9),data : ()});
+    vector.push(Node::Leaf{ point : Point::new(6, 0),data : ()});
+    vector.push(Node::Leaf{ point : Point::new(3, 10), data : ()});
+    vector.push(Node::Leaf{ point : Point::new(5, 5), data : ()});
+
+    let mut node = Node::Node {
+        coverage : Tile::new(Point::new(0, 0), Point::new(10, 10)),
+        vector : vector,
+    };
+
+    let line = Box::new(HorizontalLine::new(10u16));
+
+    let ret = node.partition(&*line as &Line<u16>, 4);
+
+    assert_eq!(ret, Some(Node::Leaf{ point : Point::new(3, 10), data : () }));
+
+    match node { 
+        Node::Node { 
+            ref coverage,
+            ref vector,
+        } =>
+        {
+            assert!(vector.len() == 4);
+            assert!(vector.iter().all(|n| n < &*line))
+        }
+
+        _ => panic!("Node became a leaf"),
+    }
+
+}
+
+#[test]
+fn insert() {
+
+    let mut rtree = RTree::<u16, ()>::new();
+
+    rtree.insert(Point::new(1, 1), ());
+    rtree.insert(Point::new(1, 2), ());
+    rtree.insert(Point::new(1, 4), ());
+    rtree.insert(Point::new(3, 4), ());
+    rtree.insert(Point::new(4, 4), ());
+    rtree.insert(Point::new(10, 10), ());
+    rtree.insert(Point::new(9, 10), ());
+    rtree.insert(Point::new(1, 10), ());
+    rtree.insert(Point::new(8, 6), ());
+    rtree.insert(Point::new(0, 10), ());
+    rtree.insert(Point::new(3, 7), ());
+
+    assert!(rtree.find(Point::new(1, 1)).is_some());
+    assert!(rtree.find(Point::new(1, 2)).is_some());
+    assert!(rtree.find(Point::new(1, 4)).is_some());
+    assert!(rtree.find(Point::new(3, 4)).is_some());
+    assert!(rtree.find(Point::new(4, 4)).is_some());
+    assert!(rtree.find(Point::new(10, 10)).is_some());
+    assert!(rtree.find(Point::new(9, 10)).is_some());
+    assert!(rtree.find(Point::new(1, 10)).is_some());
+    assert!(rtree.find(Point::new(8, 6)).is_some());
+    assert!(rtree.find(Point::new(0, 10)).is_some());
+    assert!(rtree.find(Point::new(3, 7)).is_some());
 
 }

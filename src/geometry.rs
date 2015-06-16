@@ -5,7 +5,6 @@ use std::ops::{
     Mul,
 };
 
-use std::num::One;
 use std::cmp::{
     PartialOrd,
     Eq,
@@ -15,11 +14,11 @@ use std::cmp::{
     min,
     max,
 };
-use std::fmt::Debug;
+use std::fmt::{Display, Debug};
 
 /// A marker trait for an axis coordinate representation
-pub trait Coordinate : Debug + Eq + Ord + PartialOrd + Clone + Copy +
-Add<Output = Self> + Sub<Output = Self> + Mul<Output = Self> + One + 'static { }
+pub trait Coordinate : Debug + Display + Eq + Ord + PartialOrd + Clone + Copy +
+Add<Output = Self> + Sub<Output = Self> + Mul<Output = Self> + 'static { }
 impl Coordinate for usize {}
 impl Coordinate for u64 {}
 impl Coordinate for u32 {}
@@ -48,6 +47,21 @@ impl<Coord : Coordinate> Point<Coord> {
             y : y,
         }
     }
+
+    /// Orders two points by their x coordinates
+    #[inline]
+    pub fn vertical_cmp(self, rhs : Point<Coord>) -> Ordering {
+        self.x.cmp(&rhs.x)
+    }
+
+    /// Orders two points by their y coordinates
+    #[inline]
+    pub fn horizontal_cmp(self, rhs : Point<Coord>) -> Ordering {
+        self.y.cmp(&rhs.y)
+    }
+
+    pub fn get_x(&self) -> Coord { self.x }
+    pub fn get_y(&self) -> Coord { self.y }
 }
 
 impl<Coord : Coordinate> PartialEq for Point<Coord> {
@@ -162,6 +176,7 @@ impl<Coord : Coordinate> PartialOrd<Tile<Coord>> for VerticalLine<Coord> {
         match (order_left, order_right) {
             (Ordering::Less, Ordering::Less) => Some(Ordering::Less),
             (Ordering::Greater, Ordering::Greater) => Some(Ordering::Greater),
+            (Ordering::Equal, _) => Some(Ordering::Less),
             (_, _) => Some(Ordering::Equal),
         }
     }
@@ -210,7 +225,7 @@ impl<Coord : Coordinate> HorizontalLine<Coord> {
     /// Returns the horizontal line passing by the given point
     pub fn at_point(p : Point<Coord>) -> HorizontalLine<Coord> {
         HorizontalLine {
-            y : p.x
+            y : p.y
         }
     }
 }
@@ -244,6 +259,7 @@ impl<Coord : Coordinate> PartialOrd<Tile<Coord>> for HorizontalLine<Coord> {
 
         match (order_left, order_right) {
             (Ordering::Less, Ordering::Less) => Some(Ordering::Less),
+            (Ordering::Equal, _) => Some(Ordering::Less),
             (Ordering::Greater, Ordering::Greater) => Some(Ordering::Greater),
             (_, _) => Some(Ordering::Equal),
         }
@@ -274,74 +290,71 @@ impl<Coord : Coordinate> PartialEq<Point<Coord>> for HorizontalLine<Coord> {
     }
 }
 
+pub trait Line<Coord> : Debug {
+    fn is_vertical(&self) -> bool {false }
+    fn is_horizontal(&self) -> bool { false}
 
-pub trait Line<Coord>
-where
-Self : PartialOrd<Point<Coord>> + PartialEq<Point<Coord>>,
-Self : PartialOrd<Tile<Coord>> + PartialEq<Tile<Coord>>  {}
+    // XXX work around bug #26339, use explicit methods instead of ordering traits to explicitly
+    // dispatch to the right object. ( https://github.com/rust-lang/rust/issues/26339 )
+    fn cmp_with_tile(&self, rhs : &Tile<Coord>) -> Option<Ordering>;
+    fn cmp_with_point(&self, rhs : &Point<Coord>) -> Option<Ordering>;
 
-impl<Coord : Coordinate> Line<Coord> for VerticalLine<Coord> {}
-impl<Coord : Coordinate> Line<Coord> for HorizontalLine<Coord> {}
-
-impl<'a, Coord : Coordinate> PartialOrd<&'a Line<Coord>> for Point<Coord> {
-
-    fn partial_cmp(&self, rhs : & &'a Line<Coord>) -> Option<Ordering> {
-        rhs.partial_cmp(&self)
-    }
 }
 
-impl<'a, Coord : Coordinate> PartialEq<&'a Line<Coord>> for Point<Coord> {
+impl<Coord : Coordinate> Line<Coord> for VerticalLine<Coord> {
+    fn is_vertical(&self) -> bool { true }
 
-    fn eq(&self, rhs : & &'a Line<Coord>) -> bool {
-        rhs.eq(&self)
+    fn cmp_with_tile(&self, rhs : &Tile<Coord>) -> Option<Ordering> {
+        self.partial_cmp(rhs)
     }
-}
 
-
-impl<'a, Coord : Coordinate> PartialOrd<&'a Line<Coord>> for Tile<Coord> {
-
-    fn partial_cmp(&self, rhs : & &'a Line<Coord>) -> Option<Ordering> {
-        rhs.partial_cmp(&self)
+    fn cmp_with_point(&self, rhs : &Point<Coord>) -> Option<Ordering> {
+        self.partial_cmp(rhs)
     }
+
 }
+impl<Coord : Coordinate> Line<Coord> for HorizontalLine<Coord> {
+    fn is_horizontal(&self) -> bool { true }
 
-impl<'a, Coord : Coordinate> PartialEq<&'a Line<Coord>> for Tile<Coord> {
-
-    fn eq(&self, rhs : & &'a Line<Coord>) -> bool {
-        rhs.eq(&self)
+    fn cmp_with_tile(&self, rhs : &Tile<Coord>) -> Option<Ordering> {
+        self.partial_cmp(rhs)
     }
-}
 
-
-/*
-impl<'a, Coord : Coordinate> PartialEq<&'a Line<Coord>> for Point<Coord> {
-
-    fn eq(&self, rhs : & &'a Line<Coord>) -> bool {
-        self.eq(rhs)
-    }
-}
-
-impl<'a, Coord : Coordinate> PartialEq<&'a Line<Coord>> for Tile<Coord> {
-
-    fn eq(&self, rhs : & &'a Line<Coord>) -> bool {
-        self.eq(rhs)
-    }
-}
-
-impl<'a, Coord : Coordinate> PartialOrd<&'a Line<Coord>> for Tile<Coord> {
-
-    fn partial_cmp(&self, rhs : & &'a Line<Coord>) -> Option<Ordering> {
+    fn cmp_with_point(&self, rhs : &Point<Coord>) -> Option<Ordering> {
         self.partial_cmp(rhs)
     }
 }
 
-impl<'a, Coord : Coordinate> PartialOrd<&'a Line<Coord>> for Point<Coord> {
+impl<'a, Coord : Coordinate> PartialOrd<Point<Coord>> for (Line<Coord> + 'a) {
 
-    fn partial_cmp(&self, rhs : & &'a Line<Coord>) -> Option<Ordering> {
-        self.partial_cmp(rhs)
+    fn partial_cmp(&self, rhs : &Point<Coord>) -> Option<Ordering> {
+        self.cmp_with_point(rhs)
     }
 }
-*/
+
+
+impl<'a, Coord : Coordinate> PartialEq<Point<Coord>> for (Line<Coord> + 'a) {
+
+    fn eq(&self, rhs : &Point<Coord>) -> bool {
+        self.cmp_with_point(rhs) == Some(Ordering::Equal)
+    }
+}
+
+impl<'a, Coord : Coordinate> PartialOrd<Tile<Coord>> for (Line<Coord> + 'a) {
+
+    fn partial_cmp(&self, rhs : &Tile<Coord>) -> Option<Ordering> {
+        self.cmp_with_tile(rhs)
+    }
+}
+
+
+impl<'a, Coord : Coordinate> PartialEq<Tile<Coord>> for (Line<Coord> + 'a) {
+
+    fn eq(&self, rhs : &Tile<Coord>) -> bool {
+        self.cmp_with_tile(rhs) == Some(Ordering::Equal)
+    }
+}
+
 
 /// A `Tile` represents a bounded rectangular area in a 2D plane.
 #[derive(Debug, Clone, Copy)]
@@ -417,70 +430,6 @@ impl<Coord : Coordinate> Tile<Coord> {
         }
     }
 
-    /// Splits the tile into two at the given line 
-    pub fn split_at_vertical(self, line : &VerticalLine<Coord>) -> (Tile<Coord>, Option<Tile<Coord>>) {
-        match line.partial_cmp(&self).unwrap() {
-            Ordering::Less => (self, None),
-            Ordering::Greater => (self, None),
-            Ordering::Equal =>
-            {
-                if line.x == self.bottom.x || line.x == self.top.x {
-                    (self, None)
-                } else {
-
-                    let left = Tile {
-                        bottom : self.bottom,
-                        top : Point {
-                            x : line.x,
-                            y : self.top.y,
-                        }
-                    };
-                    let right = Tile {
-                        bottom : Point {
-                            x : line.x + Coord::one(),
-                            y : self.bottom.y,
-                        },
-                        top : self.top,
-                    };
-                    (left, Some(right))
-                }
-
-            }
-        }
-    }
-
-    /// Splits the tile into two at the given line 
-    pub fn split_at_horizontal(self, line : &HorizontalLine<Coord>) -> (Tile<Coord>, Option<Tile<Coord>>) {
-        match line.partial_cmp(&self).unwrap() {
-            Ordering::Greater => (self, None),
-            Ordering::Less => (self, None),
-            Ordering::Equal =>
-            {
-                if line.y == self.bottom.y || line.y == self.top.y {
-                    (self, None)
-                } else {
-
-                    let bottom = Tile {
-                        bottom : self.bottom,
-                        top : Point {
-                            y : line.y,
-                            x : self.top.x,
-                        }
-                    };
-                    let top = Tile {
-                        bottom : Point {
-                            y : line.y + Coord::one(),
-                            x : self.bottom.x,
-                        },
-                        top : self.top,
-                    };
-                    (bottom, Some(top))
-                }
-
-            }
-        }
-    }
-
     /// Returns the smallest tile including both tiles
     pub fn union(self, rhs : Tile<Coord>) -> Tile<Coord> {
         Tile {
@@ -493,11 +442,6 @@ impl<Coord : Coordinate> Tile<Coord> {
                 y : min(self.bottom.y, rhs.bottom.y),
             }
         }
-    }
-
-    /// Returns the area of the tile
-    pub fn area(&self) -> Coord {
-        (self.top.x - self.bottom.x) * (self.top.y - self.bottom.y)
     }
 }
 
@@ -676,4 +620,12 @@ mod test {
         assert!(t3 >= t2);
     }
 
+    #[test]
+    fn test_line_point_cmp(){
+        let line : Box<Line<u16>> = Box::new(HorizontalLine::new(4) );
+        assert!(&*line > &Point::new(0, 0));
+    }
+    
+
 }
+
