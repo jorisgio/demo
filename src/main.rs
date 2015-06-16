@@ -1,4 +1,5 @@
 #![feature(collections_drain)]
+extern crate num;
 // These modules could be a library
 #[allow(dead_code)]mod geometry;
 #[allow(dead_code)]mod rtree;
@@ -24,7 +25,6 @@ impl<Coord : geometry::Coordinate> Display for geometry::Point<Coord> {
         write!(f, "{} {}", self.get_x(), self.get_y())
     }
 }
-
 
 fn main() {
     let mut parser = Parser::new(BufReader::new(io::stdin()));

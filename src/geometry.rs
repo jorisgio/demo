@@ -15,10 +15,12 @@ use std::cmp::{
     max,
 };
 use std::fmt::{Display, Debug};
+use ::num::traits::{One, Zero};
 
 /// A marker trait for an axis coordinate representation
-pub trait Coordinate : Debug + Display + Eq + Ord + PartialOrd + Clone + Copy +
+pub trait Coordinate : Debug + Display + Eq + Ord + PartialOrd + Clone + Copy + One + Zero +
 Add<Output = Self> + Sub<Output = Self> + Mul<Output = Self> + 'static { }
+
 impl Coordinate for usize {}
 impl Coordinate for u64 {}
 impl Coordinate for u32 {}
@@ -176,7 +178,6 @@ impl<Coord : Coordinate> PartialOrd<Tile<Coord>> for VerticalLine<Coord> {
         match (order_left, order_right) {
             (Ordering::Less, Ordering::Less) => Some(Ordering::Less),
             (Ordering::Greater, Ordering::Greater) => Some(Ordering::Greater),
-            (Ordering::Equal, _) => Some(Ordering::Less),
             (_, _) => Some(Ordering::Equal),
         }
     }
@@ -259,7 +260,6 @@ impl<Coord : Coordinate> PartialOrd<Tile<Coord>> for HorizontalLine<Coord> {
 
         match (order_left, order_right) {
             (Ordering::Less, Ordering::Less) => Some(Ordering::Less),
-            (Ordering::Equal, _) => Some(Ordering::Less),
             (Ordering::Greater, Ordering::Greater) => Some(Ordering::Greater),
             (_, _) => Some(Ordering::Equal),
         }

@@ -126,8 +126,8 @@ impl<R : BufRead> Parser<R> {
             return Err(ParseError::InvalidCoordinateFormat)
         }
 
-        let x = try!(words[1].parse::<u16>().map_err(|e| ParseError::InvalidNumber(e)));
-        let y = try!(words[0].parse::<u16>().map_err(|e| ParseError::InvalidNumber(e)));
+        let x = try!(words[0].parse::<u16>().map_err(|e| ParseError::InvalidNumber(e)));
+        let y = try!(words[1].parse::<u16>().map_err(|e| ParseError::InvalidNumber(e)));
         Ok((x as i32 , y as i32))
     }
 
@@ -223,6 +223,6 @@ impl<R : BufRead> Parser<R> {
         let dust = try!(self.parse_dust());
         let moves = try!(self.parse_rover_path());
 
-        Ok((Point::new(x, y), Point::new(rx, ry), dust, moves))
+        Ok((Point::new(x - 1, y - 1), Point::new(rx, ry), dust, moves))
     }
 }

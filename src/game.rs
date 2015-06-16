@@ -52,7 +52,7 @@ impl GameMap {
     fn move_rover(&mut self, dir : RoverMove) -> Point<i32> {
         let vector = dir.as_vector();
         let new_pos = self.rover + vector;
-        if new_pos <= self.grid_top || new_pos >= Point::new(0, 0) { 
+        if new_pos <= self.grid_top && new_pos >= Point::new(0, 0) { 
             self.rover = self.rover + vector;
         } 
         self.rover
@@ -66,6 +66,8 @@ impl GameMap {
         moves.iter()
             .cloned()
             .map(|d| self.move_rover(d))
+            // Uncomment to print the rover path
+            // .inspect(|pos| println!("{:?}", pos))
             .filter(|pos| map.find_mut(*pos).map(|d| d.clean_dust()).unwrap_or(false))
             .count();
         mem::swap(&mut map, &mut self.dust_map);
@@ -85,6 +87,7 @@ impl RoverMove {
 }
 
 /// A game tile
+#[derive(Debug)]
 struct Entity {
     dust : bool,
 }

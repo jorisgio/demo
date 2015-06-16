@@ -4,6 +4,7 @@ use std::cmp::{
     PartialOrd,
     Ordering,
 };
+use std::fmt::Debug;
 
 use std::clone::Clone;
 
@@ -20,7 +21,7 @@ use ::geometry::{
 /// A subnode entry is either an internal tree node, or a leaf node with a point and associated
 /// data
 #[derive(Debug)]
-enum Node<Coord : Coordinate, Value> {
+enum Node<Coord : Coordinate, Value : Debug> {
     Leaf {
         point : Point<Coord>,
         data : Value,
@@ -31,7 +32,7 @@ enum Node<Coord : Coordinate, Value> {
     }
 }
 
-impl<Coord : Coordinate, Value, Obj : ?Sized> PartialOrd<Obj> for Node<Coord, Value>
+impl<Coord : Coordinate, Value : Debug, Obj : ?Sized> PartialOrd<Obj> for Node<Coord, Value>
 where Obj : PartialOrd<Point<Coord>>, Obj : PartialOrd<Tile<Coord>>, Node<Coord, Value> : PartialEq<Obj> {
 
     #[inline]
@@ -44,7 +45,7 @@ where Obj : PartialOrd<Point<Coord>>, Obj : PartialOrd<Tile<Coord>>, Node<Coord,
     }
 }
 
-impl<Coord : Coordinate, Value, Obj : ?Sized> PartialEq<Obj> for Node<Coord, Value>
+impl<Coord : Coordinate, Value : Debug, Obj : ?Sized> PartialEq<Obj> for Node<Coord, Value>
 where
 Obj : PartialEq<Point<Coord>>, 
 Obj : PartialEq<Tile<Coord>>,
@@ -58,7 +59,7 @@ Obj : PartialEq<Tile<Coord>>,
     }
 }
 
-impl<Coord : Coordinate, Value> Node<Coord, Value> {
+impl<Coord : Coordinate, Value : Debug> Node<Coord, Value> {
 
     /// Returns the smallest covering tile for the subtree
     fn coverage(&self) -> Tile<Coord> {
@@ -93,12 +94,13 @@ impl<Coord : Coordinate, Value> Node<Coord, Value> {
         let iter = tile_set_vertical.iter();
 
         // Compute the vertical splitting line
+        let corner =
+                tile_set_vertical[fill_factor - 1].bottom_left_corner();
         let vline =
-            VerticalLine::at_point(tile_set_vertical[fill_factor].bottom_left_corner());
+            VerticalLine::at_point(corner);
 
         // Compute the number of tiles which have to be splited (overlapping the first box)
-        let vertical_cost = iter.filter(|&tile| &vline == tile).count();
-
+        let vertical_cost = iter.filter(|&tile| &vline >= tile).count();
 
 
         // Sort by y axis starting points
@@ -106,13 +108,13 @@ impl<Coord : Coordinate, Value> Node<Coord, Value> {
         let iter = tile_set_horizontal.iter();
 
         // Compute the spliting line
-        let hline = 
-            HorizontalLine::at_point(tile_set_horizontal[fill_factor].bottom_left_corner());
+        let corner =
+                tile_set_horizontal[fill_factor - 1].bottom_left_corner();
+        let hline =
+            HorizontalLine::at_point(corner);
 
         // Compute the number of tiles which have to be splited (overlapping the first box)
-        let horizontal_cost = iter.filter(|&tile| &hline == tile).count();
-
-
+        let horizontal_cost = iter.filter(|&tile| &hline >= tile).count();
 
         // Decide wether the bounding box should be splitted vertically or horizontally
         if vertical_cost > horizontal_cost {
@@ -198,7 +200,8 @@ impl<Coord : Coordinate, Value> Node<Coord, Value> {
         // The call graph of this function is weird, but again it's for lifetime 
         let old_value = match *self {
             // Node is a leaf, swap the value and returns the old one
-            Node::Leaf { ref mut data, .. } => { mem::swap(data, &mut value); return (Some(value), None) },
+            Node::Leaf { ref mut data, point : ref p } if p == &point => { mem::swap(data, &mut value); return (Some(value), None) },
+            Node::Leaf { .. } => return (None, Some(Node::Leaf { point : point, data : value })),
             Node::Node { ref mut vector, .. } =>
             {
                 let (old_value, overflow) = 
@@ -232,7 +235,8 @@ impl<Coord : Coordinate, Value> Node<Coord, Value> {
     /// reference to the value associated with the point
     fn find(&self, point : Point<Coord>) -> Option<&Value> {
         match *self {
-            Node::Leaf { ref data, .. } => Some(data),
+            Node::Leaf { ref data, point : ref p } if p == &point => Some(data),
+            Node::Leaf { .. } => None,
             Node::Node { ref vector, .. } => 
                 vector
                 .iter()
@@ -245,7 +249,8 @@ impl<Coord : Coordinate, Value> Node<Coord, Value> {
     /// reference to the value associated with the point
     fn find_mut(&mut self, point : Point<Coord>) -> Option<&mut Value> {
         match *self {
-            Node::Leaf { ref mut data, .. } => Some(data),
+            Node::Leaf { ref mut data, point : ref p } if p == &point => Some(data),
+            Node::Leaf { .. } => None,
             Node::Node { ref mut vector, .. } => 
                 vector
                 .iter_mut()
@@ -257,12 +262,12 @@ impl<Coord : Coordinate, Value> Node<Coord, Value> {
 
 /// A balanced tree storing points in a 2D plane
 #[derive(Debug)]
-pub struct RTree<Coord : Coordinate, Data> {
+pub struct RTree<Coord : Coordinate, Data : Debug> {
     fill_factor : usize,
     root : Option<Node<Coord, Data>>,
 }
 
-impl<Coord : Coordinate, Data> RTree<Coord, Data> {
+impl<Coord : Coordinate, Data : Debug> RTree<Coord, Data> {
 
     /// Creates a new empty `RTree`
     pub fn new() -> RTree<Coord, Data> {
@@ -293,6 +298,8 @@ impl<Coord : Coordinate, Data> RTree<Coord, Data> {
                 vector.push(root);
 
                 self.root = Some(Node::Node { coverage : tile, vector : vector });
+            } else {
+                self.root = Some(root);
             }
             ret_val
         } else {
@@ -333,15 +340,15 @@ fn test_sweep_fill_factor_empty() {
 #[test]
 fn test_sweep_horizontal() {
     let vec =
-        vec![Tile::new(Point::new(0, 0), Point::new(2, 2)),
-        Tile::new(Point::new(1, 5), Point::new(8, 6)),
-        Tile::new(Point::new(4, 10), Point::new(7, 11)),
+        vec![Tile::new(Point::new(0, 0), Point::new(0, 2)),
+        Tile::new(Point::new(0, 5), Point::new(0, 6)),
+        Tile::new(Point::new(0, 10), Point::new(0, 11)),
         ];
 
     let line = Node::<u16, u16>::sweep(vec.clone(), 2);
     assert!(line.is_horizontal());
-    assert!(*line > vec[0].bottom_left_corner());
-    assert!(*line > vec[1].bottom_left_corner());
+    assert!(*line >= vec[0].bottom_left_corner());
+    assert!(*line >= vec[1].bottom_left_corner());
     assert!(*line <= vec[2].bottom_left_corner());
 }
 
@@ -356,8 +363,8 @@ fn test_sweep_vertical() {
     let line = Node::<u16, u16>::sweep(vec.clone(), 2);
     assert!(line.is_vertical());
     println!("{:?}, {:?}", line, vec[0].bottom_left_corner());
-    assert!(*line > vec[0].bottom_left_corner());
-    assert!(*line > vec[1].bottom_left_corner());
+    assert!(*line >= vec[0].bottom_left_corner());
+    assert!(*line >= vec[1].bottom_left_corner());
     assert!(*line <= vec[2].bottom_left_corner());
 }
 
@@ -367,17 +374,17 @@ fn test_partition_depth1_vertical() {
     let mut vector = Vec::with_capacity(5);
 
     vector.push(Node::Leaf{ point : Point::new(0, 0),data : ()});
-    vector.push(Node::Leaf{ point : Point::new(5, 9),data : ()});
+    vector.push(Node::Leaf{ point : Point::new(4, 9),data : ()});
     vector.push(Node::Leaf{ point : Point::new(6, 0),data : ()});
     vector.push(Node::Leaf{ point : Point::new(3, 10), data : ()});
-    vector.push(Node::Leaf{ point : Point::new(5, 5), data : ()});
+    vector.push(Node::Leaf{ point : Point::new(4, 5), data : ()});
 
     let mut node = Node::Node {
         coverage : Tile::new(Point::new(0, 0), Point::new(10, 10)),
         vector : vector,
     };
 
-    let line = Box::new(VerticalLine::new(6u16));
+    let line = Box::new(VerticalLine::new(5u16));
 
     let ret = node.partition(&*line as &Line<u16>, 4);
 
@@ -390,7 +397,7 @@ fn test_partition_depth1_vertical() {
         } =>
         {
             assert!(vector.len() == 4);
-            assert!(vector.iter().all(|n| n < &*line))
+            assert!(vector.iter().all(|n| n <= &*line))
         }
 
         _ => panic!("Node became a leaf"),
@@ -410,11 +417,11 @@ fn test_partition_depth1_horizontal() {
     vector.push(Node::Leaf{ point : Point::new(5, 5), data : ()});
 
     let mut node = Node::Node {
-        coverage : Tile::new(Point::new(0, 0), Point::new(10, 10)),
+        coverage : Tile::new(Point::new(0, 0), Point::new(10, 11)),
         vector : vector,
     };
 
-    let line = Box::new(HorizontalLine::new(10u16));
+    let line = Box::new(HorizontalLine::new(9u16));
 
     let ret = node.partition(&*line as &Line<u16>, 4);
 
@@ -427,7 +434,7 @@ fn test_partition_depth1_horizontal() {
         } =>
         {
             assert!(vector.len() == 4);
-            assert!(vector.iter().all(|n| n < &*line))
+            assert!(vector.iter().all(|n| n <= &*line))
         }
 
         _ => panic!("Node became a leaf"),
@@ -451,6 +458,8 @@ fn insert() {
     rtree.insert(Point::new(8, 6), ());
     rtree.insert(Point::new(0, 10), ());
     rtree.insert(Point::new(3, 7), ());
+
+    println!("{:?}", rtree);
 
     assert!(rtree.find(Point::new(1, 1)).is_some());
     assert!(rtree.find(Point::new(1, 2)).is_some());
