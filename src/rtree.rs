@@ -133,12 +133,15 @@ impl<Coord : Coordinate, Value : Debug> Node<Coord, Value> {
         let (left, right) =
             match *self {
                 Node::Leaf { .. } => return None,
-                Node::Node { ref mut vector, .. } => 
+                Node::Node { vector : ref mut vec, .. } => 
                 {
                     let mut left_vec = Vec::with_capacity(fill_factor);
                     let mut right_vec = Vec::with_capacity(fill_factor);
 
-                    for mut node in (vector.drain(..)) {
+                    let mut vector = Vec::new();
+                    mem::swap(&mut vector, vec);
+
+                    for mut node in vector {
                         match node.partial_cmp(line) {
                             Some(Ordering::Less) => left_vec.push(node),
                             // The current node overlaps the split tile. Recursivly split the subtree

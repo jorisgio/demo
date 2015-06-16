@@ -1,4 +1,3 @@
-#![feature(collections_drain)]
 extern crate num;
 // These modules could be a library
 #[allow(dead_code)]mod geometry;
